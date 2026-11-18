@@ -1,245 +1,230 @@
-// The story of Solmar: eight missions for Jax Marlowe, a driver-for-hire who owes Big
-// Sal $5,000 and works it off job by job. Each mission is a list of steps; a step is data
-// ({type, x, y, ...}) and the engine below evaluates it against the live world state, so
-// a mission is easy to read and the world never has to know the story.
-import { ECONOMY } from './config.js';
+// missions.js — the story of Sunset Harbor: eight jobs for fixer Mara Voss.
+// A data-driven step engine: each mission is a list of steps (drive to a
+// place, steal a specific car, fight a crew, beat the clock, escape the law).
+// Completing a mission pays cash, raises reputation, unlocks the next job and
+// auto-saves. Finishing all eight is the victory: "King of the Harbor".
+
+import { dist } from './random.js';
+import { landmark } from './city.js';
+import { makeCar } from './vehicles.js';
+import { makeEnemy } from './combat.js';
 
 export const MISSIONS = [
   {
-    id: 'first-wheels',
-    title: 'First Wheels',
-    giver: 'Lena Cruz',
-    briefing: "Lena needs wheels. Steal any car off the street (E) and bring it to her garage.",
-    reward: ECONOMY.missionRewards[0],
+    id: 'first-fare', title: 'First Fare', giver: 'Mara Voss', pay: 200,
+    briefing: 'A client waits at Marina Pier. Pick him up and drive him to Sunset Plaza. Drive smooth — he tips for no dents.',
     steps: [
-      { type: 'stealCar', text: 'Steal a car — press E next to one' },
-      { type: 'goto', x: 720, y: 880, radius: 90, text: "Drive the car to Lena's Garage" },
+      { type: 'goto', x: 2960, y: 800, label: 'Pick up the client at Marina Pier' },
+      { type: 'goto', x: 1600, y: 1600, label: 'Drop the client at Sunset Plaza' },
     ],
   },
   {
-    id: 'the-drop',
-    title: 'The Drop',
-    giver: 'Big Sal',
-    briefing: 'A package is waiting at the Harbor. Pick it up and deliver it to the Bank — fast.',
-    reward: ECONOMY.missionRewards[1],
+    id: 'hot-wheels', title: 'Hot Wheels', giver: 'Mara Voss', pay: 350,
+    briefing: 'A Gullwing Coupe sits outside the Neon Gull Casino. Take it — quietly — and bring it to the Turbo Tune Garage.',
     steps: [
-      { type: 'goto', x: 3310, y: 1180, radius: 90, text: 'Pick up the package at the Harbor' },
-      { type: 'goto', x: 1520, y: 880, radius: 90, timer: 90, text: 'Deliver to the Bank before time runs out' },
+      { type: 'steal', defId: 'coupe', x: 1920, y: 1400, label: 'Steal the Gullwing Coupe at the casino' },
+      { type: 'deliver', x: 2240, y: 2240, label: 'Deliver the Coupe to Turbo Tune Garage' },
     ],
   },
   {
-    id: 'taxi-nights',
-    title: 'Taxi Nights',
-    giver: 'Lena Cruz',
-    briefing: 'The garage needs cash. Run the taxi: pick up fares and drop them off. Two fares.',
-    reward: ECONOMY.missionRewards[2],
+    id: 'dockside-trouble', title: 'Dockside Trouble', giver: 'Mara Voss', pay: 500,
+    briefing: 'The Crane Crew is muscling in on my docks. Go to the Harbor Cranes and send their boys home. Bring a gun.',
     steps: [
-      { type: 'fare', count: 2, text: 'Complete 2 taxi fares (drive to the $ marker)' },
+      { type: 'goto', x: 800, y: 2960, label: 'Reach the Harbor Cranes' },
+      { type: 'kill', count: 3, x: 800, y: 2960, label: 'Deal with the Crane Crew (0/3)' },
+      { type: 'goto', x: 1600, y: 1600, label: 'Report back at Sunset Plaza' },
     ],
   },
   {
-    id: 'hot-wheels',
-    title: 'Hot Wheels',
-    giver: 'Big Sal',
-    briefing: 'The cops are onto us. Get their attention — 2 stars — then shake them and lose the heat.',
-    reward: ECONOMY.missionRewards[3],
+    id: 'the-getaway', title: 'The Getaway', giver: 'Mara Voss', pay: 700,
+    briefing: 'Grab the package from the Palm Court Motel. The law will be on you the moment you touch it — lose them, then bring it to the plaza.',
     steps: [
-      { type: 'getWanted', stars: 2, text: 'Raise your wanted level to 2 stars' },
-      { type: 'loseWanted', text: 'Lose the cops — stay out of sight until the stars clear' },
+      { type: 'goto', x: 480, y: 480, label: 'Grab the package at Palm Court Motel' },
+      { type: 'escape', seconds: 20, label: 'Lose the police (stay alive 20s)' },
+      { type: 'goto', x: 1600, y: 1600, label: 'Deliver the package to Sunset Plaza' },
     ],
   },
   {
-    id: 'harbor-shootout',
-    title: 'Harbor Shootout',
-    giver: 'Big Sal',
-    briefing: 'Los Lobos took our shipment. Go to the Harbor, deal with six of them, then get out.',
-    reward: ECONOMY.missionRewards[4],
+    id: 'neon-run', title: 'Neon Run', giver: 'Rico the Bookie', pay: 800,
+    briefing: 'A bet slip worth a fortune has to cross town before the race starts. Ninety seconds. No excuses, no cops, no crashes.',
     steps: [
-      { type: 'goto', x: 3310, y: 1180, radius: 110, text: 'Reach the Harbor' },
-      { type: 'kill', count: 6, x: 3310, y: 1180, radius: 320, spawn: 6, text: 'Take out 6 Lobos (mouse to aim, click to shoot)' },
-      { type: 'goto', x: 320, y: 1480, radius: 90, text: 'Escape to the Hideout' },
+      { type: 'timed', x: 2560, y: 1920, seconds: 90, label: 'Deliver the slip to St. Anselm Hospital' },
     ],
   },
   {
-    id: 'grand-prix',
-    title: 'Solmar Grand Prix',
-    giver: 'Lena Cruz',
-    briefing: 'A street race across the city. Beat the rival through all five checkpoints.',
-    reward: ECONOMY.missionRewards[5],
+    id: 'harbor-heist', title: 'Harbor Heist', giver: 'Mara Voss', pay: 1200,
+    briefing: 'A Dock Van full of cargo sits at the cranes, guarded. Take the van, deal with the guards, and bring it to the garage.',
     steps: [
-      { type: 'race', checkpoints: [
-        { x: 720, y: 280 }, { x: 2320, y: 280 }, { x: 3120, y: 1180 },
-        { x: 1520, y: 2080 }, { x: 320, y: 580 },
-      ], timer: 100, text: 'Race through all 5 checkpoints before the rival' },
+      { type: 'steal', defId: 'van', x: 800, y: 2960, label: 'Steal the Dock Van at the cranes' },
+      { type: 'kill', count: 4, x: 800, y: 2960, label: 'Deal with the guards (0/4)' },
+      { type: 'deliver', x: 2240, y: 2240, label: 'Deliver the van to Turbo Tune Garage' },
     ],
   },
   {
-    id: 'big-score',
-    title: 'The Big Score',
-    giver: 'Big Sal',
-    briefing: 'The Bank. Trip the alarm, hold off the response for 30 seconds, then vanish.',
-    reward: ECONOMY.missionRewards[6],
+    id: 'street-war', title: 'Street War', giver: 'Mara Voss', pay: 1500,
+    briefing: 'The Gull Gang wants Old Town. They get a war instead. Clear their crew out of the plaza and the streets are ours.',
     steps: [
-      { type: 'goto', x: 1520, y: 880, radius: 90, text: 'Reach the Bank' },
-      { type: 'survive', seconds: 30, stars: 4, text: 'Hold out — survive 30 seconds at 4 stars' },
-      { type: 'goto', x: 320, y: 1480, radius: 90, text: 'Escape to the Hideout' },
+      { type: 'goto', x: 480, y: 1600, label: 'Reach Old Town Plaza' },
+      { type: 'kill', count: 5, x: 480, y: 1600, label: 'Clear the Gull Gang (0/5)' },
     ],
   },
   {
-    id: 'king-of-solmar',
-    title: 'King of Solmar',
-    giver: 'Jax Marlowe',
-    briefing: 'The whole city is after you. Survive a full minute at 5 stars, then take the Tower.',
-    reward: ECONOMY.missionRewards[7],
+    id: 'the-gull-job', title: 'The Gull Job', giver: 'Mara Voss', pay: 2500,
+    briefing: 'One last job. The Gull Limo at the casino — the gang boss\'s own ride. Take it, outrun everything Harbor PD throws at you, and bring it to the pier. Do this, and the harbor is yours.',
     steps: [
-      { type: 'survive', seconds: 60, stars: 5, text: 'Survive 60 seconds at 5 stars — the whole city is hunting you' },
-      { type: 'goto', x: 1520, y: 590, radius: 110, text: 'Take Solmar Tower — you run this city now' },
+      { type: 'steal', defId: 'limousine', x: 1920, y: 1400, label: 'Steal the Gull Limo at the casino' },
+      { type: 'escape', seconds: 25, label: 'Outrun Harbor PD (stay alive 25s)' },
+      { type: 'deliver', x: 2960, y: 800, label: 'Deliver the Limo to Marina Pier' },
     ],
   },
 ];
 
-export function createMissionEngine() {
-  let index = 0;
-  let step = 0;
-  let t = 0;
-  let killsAtStart = 0;
-  let faresAtStart = 0;
-  let entered = false;
-
-  function current() {
-    return index < MISSIONS.length ? MISSIONS[index] : null;
-  }
-
-  function currentStep() {
-    const m = current();
-    return m ? m.steps[step] : null;
-  }
-
-  /** Begin mission `i` (0-based) from its first step. */
-  function start(i) {
-    index = i;
-    step = 0;
-    t = 0;
-    entered = false;
-    killsAtStart = 0;
-    faresAtStart = 0;
-  }
-
-  /** The marker the minimap and the world arrow should point at, or null. */
-  function marker(w) {
-    const s = currentStep();
-    if (!s) return null;
-    if (s.type === 'goto' || s.type === 'kill' || s.type === 'survive') return { x: s.x, y: s.y };
-    if (s.type === 'race') {
-      const cp = s.checkpoints[s.checkpointIndex ?? 0];
-      return cp ? { x: cp.x, y: cp.y } : null;
-    }
-    if (s.type === 'fare') return w.fareMarker;
-    return null;
-  }
-
-  function objectiveText() {
-    const m = current();
-    const s = currentStep();
-    if (!m || !s) return '';
-    return s.text;
-  }
-
-  function advance(w) {
-    const m = current();
-    step += 1;
-    t = 0;
-    entered = false;
-    if (step >= m.steps.length) {
-      const reward = m.reward;
-      index += 1;
-      step = 0;
-      return { type: 'mission', mission: m, reward };
-    }
-    return { type: 'step' };
-  }
-
-  /**
-   * One step of story. `w` is the world state (player, wanted, stats, and the world's
-   * spawn/set helpers). Returns an event object when a step or mission completes or fails.
-   */
-  function update(w, dt) {
-    const m = current();
-    if (!m) return null;
-    const s = currentStep();
-    if (!s) return null;
-
-    if (!entered) {
-      entered = true;
-      t = 0;
-      killsAtStart = w.stats.kills;
-      faresAtStart = w.stats.fares;
-      if (s.type === 'kill' && s.spawn) w.spawnGang(s.x, s.y, s.spawn);
-      if (s.type === 'survive' && s.stars) w.setWanted(s.stars);
-      if (s.type === 'race') {
-        s.checkpointIndex = 0;
-        w.spawnRival(s.checkpoints);
-      }
-    }
-    t += dt;
-
-    if (s.timer && t > s.timer) {
-      return { type: 'fail', reason: 'Out of time — the job fell through.' };
-    }
-
-    const px = w.player.x;
-    const py = w.player.y;
-    const near = (x, y, r) => (px - x) * (px - x) + (py - y) * (py - y) < r * r;
-
-    switch (s.type) {
-      case 'goto':
-        if (near(s.x, s.y, s.radius)) return advance(w);
-        break;
-      case 'stealCar':
-        if (w.player.car && w.player.car.stolen) return advance(w);
-        break;
-      case 'fare':
-        if (w.stats.fares - faresAtStart >= s.count) return advance(w);
-        break;
-      case 'getWanted':
-        if (w.wanted >= s.stars) return advance(w);
-        break;
-      case 'loseWanted':
-        if (w.wanted === 0) return advance(w);
-        break;
-      case 'kill':
-        if (w.stats.kills - killsAtStart >= s.count) return advance(w);
-        break;
-      case 'survive':
-        if (t >= s.seconds) return advance(w);
-        break;
-      case 'race': {
-        const cp = s.checkpoints[s.checkpointIndex];
-        if (cp && near(cp.x, cp.y, 110)) {
-          s.checkpointIndex += 1;
-          w.onCheckpoint(s.checkpointIndex);
-          if (s.checkpointIndex >= s.checkpoints.length) {
-            w.clearRival();
-            return advance(w);
-          }
-        }
-        if (w.rivalFinished) return { type: 'fail', reason: 'The rival beat you to the finish.' };
-        break;
-      }
-      default:
-        break;
-    }
-    return null;
-  }
-
+/** Create mission state. index = next mission to play. */
+export function createMissions() {
   return {
-    get index() { return index; },
-    set index(v) { index = v; },
-    current,
-    currentStep,
-    start,
-    marker,
-    objectiveText,
-    update,
+    index: 0,
+    completed: [],
+    active: null,       // { mission, stepIndex, stepState }
+    banner: null,       // { title, sub, timer } shown after start/complete
+    failed: null,       // reason string when a timed step fails
+    victory: false,
   };
+}
+
+/** The mission currently offered (not yet started). */
+export function nextMission(missions) {
+  return MISSIONS[missions.index] || null;
+}
+
+/** Start the next mission. Spawns step actors. */
+export function startMission(game, missions) {
+  const def = nextMission(missions);
+  if (!def) return false;
+  missions.active = { mission: def, stepIndex: 0, stepState: {}, startedAt: game.clock };
+  enterStep(game, missions);
+  missions.banner = { title: def.title, sub: `New job from ${def.giver} — $${def.pay}`, timer: 4 };
+  return true;
+}
+
+function enterStep(game, missions) {
+  const { mission, stepIndex } = missions.active;
+  const step = mission.steps[stepIndex];
+  const st = missions.active.stepState = {};
+  if (step.type === 'steal') {
+    const car = makeCar(step.defId, step.x, step.y, 0, { parked: true, driver: false });
+    car.missionCar = true;
+    game.cars.push(car);
+    st.car = car;
+  } else if (step.type === 'kill') {
+    st.enemies = [];
+    for (let i = 0; i < step.count; i++) {
+      const e = makeEnemy(step.x + (i - step.count / 2) * 70 + (i % 2) * 30, step.y + ((i * 53) % 120) - 60, { health: 60 });
+      game.enemies.push(e);
+      st.enemies.push(e);
+    }
+    st.killed = 0;
+  } else if (step.type === 'timed') {
+    st.timeLeft = step.seconds;
+  } else if (step.type === 'escape') {
+    st.timeLeft = step.seconds;
+    game.wanted.stars = Math.max(game.wanted.stars, step.type === 'escape' && mission.id === 'the-gull-job' ? 3 : 2);
+    game.wanted.heat = 0;
+    game.wanted.cleanTimer = -999; // no decay during the escape
+  }
+}
+
+/** Current objective for the HUD: {x, y, label} or null. */
+export function currentObjective(missions) {
+  if (!missions.active) return null;
+  const step = missions.active.mission.steps[missions.active.stepIndex];
+  if (!step) return null;
+  if (step.type === 'steal' && missions.active.stepState.car) {
+    const c = missions.active.stepState.car;
+    return { x: c.x, y: c.y, label: step.label };
+  }
+  if (step.type === 'kill' || step.type === 'goto' || step.type === 'timed' || step.type === 'deliver') {
+    return { x: step.x, y: step.y, label: step.label };
+  }
+  return { x: 0, y: 0, label: step.label, noMarker: true };
+}
+
+/** Advance the mission state machine. Returns 'complete' | 'failed' | null. */
+export function updateMissions(game, missions, dt) {
+  if (missions.banner) {
+    missions.banner.timer -= dt;
+    if (missions.banner.timer <= 0) missions.banner = null;
+  }
+  if (!missions.active) return null;
+  const { mission, stepIndex } = missions.active;
+  const step = mission.steps[stepIndex];
+  const st = missions.active.stepState;
+  const player = game.player;
+  const inCar = game.playerCar;
+
+  const advance = () => {
+    missions.active.stepIndex++;
+    if (missions.active.stepIndex >= mission.steps.length) {
+      completeMission(game, missions);
+      return 'complete';
+    }
+    enterStep(game, missions);
+    return null;
+  };
+
+  if (step.type === 'goto') {
+    if (dist(player.x, player.y, step.x, step.y) < 70) return advance();
+  } else if (step.type === 'steal') {
+    const car = st.car;
+    if (car && inCar === car) return advance();
+    if (car && car.dead) { failMission(game, missions, 'The target car was destroyed.'); return 'failed'; }
+  } else if (step.type === 'deliver') {
+    if (inCar && dist(inCar.x, inCar.y, step.x, step.y) < 80) return advance();
+  } else if (step.type === 'kill') {
+    const alive = st.enemies.filter((e) => !e.dead).length;
+    const killed = step.count - alive;
+    step.label = step.label.replace(/\(\d+\/\d+\)/, `(${killed}/${step.count})`);
+    if (alive === 0) return advance();
+  } else if (step.type === 'timed') {
+    st.timeLeft -= dt;
+    if (dist(player.x, player.y, step.x, step.y) < 70) return advance();
+    if (st.timeLeft <= 0) { failMission(game, missions, 'Out of time.'); return 'failed'; }
+  } else if (step.type === 'escape') {
+    st.timeLeft -= dt;
+    if (game.wanted.stars === 0) st.timeLeft -= dt * 2; // losing them fast helps
+    if (st.timeLeft <= 0) {
+      game.wanted.cleanTimer = 0;
+      return advance();
+    }
+  }
+  return null;
+}
+
+function completeMission(game, missions) {
+  const def = missions.active.mission;
+  game.money += def.pay;
+  game.reputation += 1;
+  missions.completed.push(def.id);
+  missions.index++;
+  missions.active = null;
+  missions.banner = { title: 'JOB DONE', sub: `${def.title} — +$${def.pay}`, timer: 4 };
+  game.audio.cash();
+  game.audio.mission();
+  if (missions.index >= MISSIONS.length) {
+    missions.victory = true;
+    game.state = 'victory';
+  }
+}
+
+function failMission(game, missions, reason) {
+  missions.failed = reason;
+  missions.active = null;
+  missions.banner = { title: 'JOB FAILED', sub: reason, timer: 4 };
+  game.audio.fail();
+}
+
+/** Time left on a timed / escape step, or null. */
+export function stepTimeLeft(missions) {
+  if (!missions.active) return null;
+  const st = missions.active.stepState;
+  return typeof st.timeLeft === 'number' ? Math.max(0, st.timeLeft) : null;
 }

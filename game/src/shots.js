@@ -1,205 +1,109 @@
-// The screenshot scenes behind ?shot=start|drive|chase|mission. Each one plays the real
-// rules forward from a fresh world for a fixed number of steps, steered by a simple
-// autopilot, so the frame is what real play looks like and the same seed always gives the
-// same frame.
-import { STEP } from './config.js';
-import { angleDiff } from './random.js';
-import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// shots.js — deterministic screenshot scenes for Sunset Harbor.
+// ?shot=<scene>&seed=1 builds a fixed, fully-staged moment of the game:
+// title, driving, chase and mission. Each scene sets the player, cars,
+// police, mission and camera directly from the seed, then the main loop
+// advances a fixed number of simulation steps before the first paint, so a
+// headless screenshot always captures the same frame.
 
-const SAMPLE = STEP;
+import { createRng } from './random.js';
+import { generateCity, WORLD_SIZE } from './city.js';
+import { makeCar, seedTraffic } from './vehicles.js';
+import { seedPedestrians } from './pedestrians.js';
+import { makeEnemy } from './combat.js';
+import { startMission } from './missions.js';
 
-/** A fake input the autopilot drives: the world reads it exactly like the real one. */
-function fakeInput() {
-  const state = {
-    moveX: 0, moveY: 0, throttle: 0, steer: 0, handbrake: false,
-    mouseX: 640, mouseY: 360, mouseDown: false, actions: 0,
-  };
-  return {
-    state,
-    move() { return { x: state.moveX, y: state.moveY }; },
-    running() { return false; },
-    throttle() { return state.throttle; },
-    steer() { return state.steer; },
-    handbrake() { return state.handbrake; },
-    mouse() { return { x: state.mouseX, y: state.mouseY, down: state.mouseDown }; },
-    takeClick() { return false; },
-    takeActions() {
-      const a = state.actions;
-      state.actions = 0;
-      return a;
-    },
-  };
+export const SHOT_SCENES = ['title', 'driving', 'chase', 'mission'];
+
+/** Parse ?shot= and ?seed= from the URL. */
+export function parseShotQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const shot = params.get('shot');
+  const seed = parseInt(params.get('seed') || '1', 10) || 1;
+  return { shot: SHOT_SCENES.includes(shot) ? shot : null, seed };
 }
 
-/** Steer a car toward `angle` and keep the throttle open. */
-function driveToward(input, world, angle) {
-  const car = world.state.player.car;
-  if (!car) return;
-  const diff = angleDiff(car.angle, angle);
-  input.state.steer = diff > 0.08 ? 1 : diff < -0.08 ? -1 : 0;
-  input.state.throttle = 1;
-}
+/** Stage a deterministic scene on a fresh game object. Returns the scene name. */
+export function stageShotScene(game, scene, seed) {
+  const rng = createRng(seed * 7919 + 13);
+  game.city = generateCity(seed);
+  game.rng = rng;
+  game.state = 'playing';
+  game.clock = 17.5 * 3600; // golden hour
 
-/** Put the player in the parked car nearest (x, y) and drive off in it. */
-function stealNearestCar(world, x, y) {
-  const s = world.state;
-  let best = null;
-  let bestD = Infinity;
-  for (const car of s.cars) {
-    if (car.dead || car.kind !== 'parked') continue;
-    const d = (car.x - x) * (car.x - x) + (car.y - y) * (car.y - y);
-    if (d < bestD) {
-      bestD = d;
-      best = car;
-    }
+  if (scene === 'title') {
+    game.state = 'title';
+    game.menuIndex = 1;
+    game.hasSave = true;
+    return scene;
   }
-  if (!best) return null;
-  s.player.x = best.x;
-  s.player.y = best.y;
-  best.driver = 'player';
-  best.stolen = true;
-  s.player.car = best;
-  s.player.angle = best.angle;
-  s.stats.carsStolen += 1;
-  return best;
-}
 
-function stageStart(world, renderer) {
-  world.reset(false);
-  const input = fakeInput();
-  for (let i = 0; i < 6 / SAMPLE; i += 1) {
-    renderer.cameraFor(world, SCREEN_TITLE);
-    world.step(SAMPLE, input, 'attract');
+  if (scene === 'driving') {
+    // Player cruising downtown in a muscle car, traffic around, sun low.
+    // Starts mid-city heading east so the camera never hits the world edge.
+    const car = makeCar('muscle', 800, 1600, 0, {});
+    car.speed = 420;
+    game.cars = seedTraffic(game.city, rng, 14);
+    game.cars.push(car);
+    game.playerCar = car;
+    game.player.x = 800; game.player.y = 1600;
+    game.player.health = 100;
+    game.peds = seedPedestrians(rng, 16, 800, 1600);
+    game.money = 1250;
+    game.cam.x = 800; game.cam.y = 1600;
+    game.missions.index = 1;
+    game.shotDrive = true; // keep the throttle down for the capture
+    return scene;
   }
-  renderer.cameraFor(world, SCREEN_TITLE);
-  return { screen: SCREEN_TITLE, ui: { menuIndex: 1, hasSave: false, best: null, howTo: false, muted: false } };
-}
 
-function stageDrive(world, renderer) {
-  world.reset(false);
-  const input = fakeInput();
-  stealNearestCar(world, 700, 880);
-  // Put the car on the street itself, heading east, and drive for four and a half seconds —
-  // far enough to be up to speed, not so far the camera runs out of city.
-  const car = world.state.player.car;
-  if (car) {
-    car.x = 700;
-    car.y = 880;
-    car.angle = 0;
-    world.state.player.x = 700;
-    world.state.player.y = 880;
+  if (scene === 'chase') {
+    // Police chase: wanted 3, two interceptors on the player's tail, player
+    // in a coupe speeding down the avenue with a mission objective ahead.
+    const car = makeCar('coupe', 1280, 1280, 0, {});
+    car.speed = 480;
+    game.cars = seedTraffic(game.city, rng, 10);
+    game.cars.push(car);
+    game.playerCar = car;
+    game.player.x = 1280; game.player.y = 1280;
+    game.player.health = 82;
+    game.wanted.stars = 3;
+    game.wanted.heat = 0.4;
+    const cop1 = makeCar('police', 1120, 1280, 0, {});
+    cop1.speed = 460; cop1.police = true;
+    const cop2 = makeCar('police', 1180, 1330, 0.1, {});
+    cop2.speed = 440; cop2.police = true;
+    game.cars.push(cop1, cop2);
+    game.police = [
+      { kind: 'car', car: cop1, x: 1120, y: 1280, angle: 0, speed: 0, health: 100, dead: false, arrest: 0 },
+      { kind: 'car', car: cop2, x: 1180, y: 1330, angle: 0, speed: 0, health: 100, dead: false, arrest: 0 },
+    ];
+    game.peds = seedPedestrians(rng, 12, 1280, 1280);
+    game.money = 3420;
+    game.missions.index = 3;
+    startMission(game, game.missions);
+    game.cam.x = 1280; game.cam.y = 1280;
+    game.shotDrive = true; // keep the throttle down for the capture
+    return scene;
   }
-  for (let i = 0; i < 4.5 / SAMPLE; i += 1) {
-    renderer.cameraFor(world, SCREEN_PLAY);
-    world.state.cameraX = renderer.cam.x;
-    world.state.cameraY = renderer.cam.y;
-    driveToward(input, world, 0);
-    world.step(SAMPLE, input, 'play');
-  }
-  renderer.cameraFor(world, SCREEN_PLAY);
-  world.state.cameraX = renderer.cam.x;
-  world.state.cameraY = renderer.cam.y;
-  return { screen: SCREEN_PLAY, ui: { muted: false } };
-}
 
-function stageChase(world, renderer) {
-  world.reset(false);
-  const input = fakeInput();
-  stealNearestCar(world, 3200, 880);
-  const car = world.state.player.car;
-  if (car) {
-    // Head west from the east side, so the chase ends mid-city with the camera free to
-    // centre on the player, not pinned against the map's edge.
-    car.x = 3200;
-    car.y = 880;
-    car.angle = Math.PI;
-    world.state.player.x = 3200;
-    world.state.player.y = 880;
-  }
-  world.setWanted(3);
-  world.say('The Solmar PD is on your tail — lose them!', 4);
-  // Drive west until a police car is right behind the player (or 5 s pass).
-  let close = false;
-  for (let i = 0; i < 5 / SAMPLE && !close; i += 1) {
-    renderer.cameraFor(world, SCREEN_PLAY);
-    world.state.cameraX = renderer.cam.x;
-    world.state.cameraY = renderer.cam.y;
-    driveToward(input, world, Math.PI);
-    world.step(SAMPLE, input, 'play');
-    if (i > 180 && i % 10 === 0) {
-      const s = world.state;
-      close = s.cars.some((c) => c.kind === 'police' && !c.dead &&
-        (c.x - s.player.x) * (c.x - s.player.x) + (c.y - s.player.y) * (c.y - s.player.y) < 500 * 500);
-    }
-  }
-  world.setWanted(3);
-  renderer.cameraFor(world, SCREEN_PLAY);
-  world.state.cameraX = renderer.cam.x;
-  world.state.cameraY = renderer.cam.y;
-  return { screen: SCREEN_PLAY, ui: { muted: false } };
-}
-
-function stageMission(world, renderer) {
-  world.reset(false);
-  const input = fakeInput();
-  const s = world.state;
-  // Mission 5, the Harbor Shootout: the player starts inside the harbor marker, so the
-  // goto step completes at once and the kill step spawns the Lobos around them.
-  world.missions.start(4);
-  s.player.x = 3260;
-  s.player.y = 1180;
-  s.player.angle = 0;
-  // A short firefight: long enough for shots and muzzle flashes, short enough that Lobos
-  // are still standing. The autopilot aims with a human-like wobble, so it lands about
-  // half its shots, and the player strafes but stays near the harbor.
-  for (let i = 0; i < 3 / SAMPLE; i += 1) {
-    renderer.cameraFor(world, SCREEN_PLAY);
-    world.state.cameraX = renderer.cam.x;
-    world.state.cameraY = renderer.cam.y;
-    // Aim at the nearest living gang member and hold the trigger.
-    let target = null;
-    let bestD = Infinity;
-    for (const ped of s.peds) {
-      if (ped.dead || ped.kind !== 'gang') continue;
-      const d = (ped.x - s.player.x) * (ped.x - s.player.x) + (ped.y - s.player.y) * (ped.y - s.player.y);
-      if (d < bestD) {
-        bestD = d;
-        target = ped;
-      }
-    }
-    if (target) {
-      // A wobble of about a body width (deterministic, from the step index), so roughly
-      // half the shots land and the fight is still on when the frame is taken.
-      const wobX = Math.sin(i * 2.7) * 22;
-      const wobY = Math.cos(i * 1.9) * 22;
-      input.state.mouseX = target.x - renderer.cam.x + wobX;
-      input.state.mouseY = target.y - renderer.cam.y + wobY;
-      input.state.mouseDown = true;
-      // Strafe sideways, but turn back before leaving the harbor.
-      if (s.player.x > 3320) input.state.moveX = -1;
-      else if (s.player.x < 3200) input.state.moveX = 1;
-      else input.state.moveX = Math.sin(s.time * 1.3) > 0 ? 1 : -1;
-      input.state.moveY = 0;
-    } else {
-      input.state.mouseDown = false;
-      input.state.moveX = 0;
-    }
-    world.step(SAMPLE, input, 'play');
-  }
-  input.state.mouseDown = false;
-  renderer.cameraFor(world, SCREEN_PLAY);
-  world.state.cameraX = renderer.cam.x;
-  world.state.cameraY = renderer.cam.y;
-  return { screen: SCREEN_PLAY, ui: { muted: false } };
-}
-
-/**
- * Set the world to the named scene (start, drive, chase or mission; any other name is start)
- * and return the screen and UI to draw over it.
- */
-export function stageShot(name, world, renderer) {
-  if (name === 'drive') return stageDrive(world, renderer);
-  if (name === 'chase') return stageChase(world, renderer);
-  if (name === 'mission') return stageMission(world, renderer);
-  return stageStart(world, renderer);
+  // mission: on foot at the Harbor Cranes shootout, objective beacon live.
+  game.player.x = 700; game.player.y = 2900;
+  game.player.health = 100;
+  game.combat.ammo = 18;
+  game.cars = seedTraffic(game.city, rng, 6);
+  const van = makeCar('van', 860, 2960, Math.PI / 2, { parked: true, driver: false });
+  game.cars.push(van);
+  game.peds = seedPedestrians(rng, 10, 800, 2900);
+  game.money = 2150;
+  game.missions.index = 2;
+  startMission(game, game.missions);
+  // Jump the mission to its fight step.
+  game.missions.active.stepIndex = 1;
+  game.enemies = [
+    makeEnemy(840, 2920, { health: 60 }),
+    makeEnemy(900, 3000, { health: 60 }),
+    makeEnemy(760, 3020, { health: 60 }),
+  ];
+  game.missions.active.stepState = { enemies: game.enemies.slice(), killed: 0 };
+  game.cam.x = 800; game.cam.y = 2960;
+  return scene;
 }
