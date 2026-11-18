@@ -1,49 +1,51 @@
-// input.js — keyboard and mouse input for Sunset Harbor.
-// Tracks held keys, pressed-this-frame edges, and the mouse position in
-// screen and world space. Also owns the "any key" wake-up for audio.
+// Sunset Harbor — keyboard + mouse input.
+'use strict';
 
-export function createInput(canvas) {
-  const keys = new Set();
-  const pressed = new Set();
-  const mouse = { x: 0, y: 0, worldX: 0, worldY: 0, down: false, clicked: false };
-  let anyKey = false;
+// Input state: held keys (by KeyboardEvent.code), mouse position in screen
+// pixels, mouse button state, and edge-triggered "just pressed" keys.
+var Input = {
+  keys: {},
+  pressed: {},   // code -> true only on the frame it went down
+  mouseX: CFG.VIEW_W / 2,
+  mouseY: CFG.VIEW_H / 2,
+  mouseDown: false,
+  mouseClicked: false,
 
-  function keyName(e) {
-    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-    return k;
-  }
+  init: function (canvas) {
+    var self = this;
+    window.addEventListener('keydown', function (e) {
+      if (!self.keys[e.code]) self.pressed[e.code] = true;
+      self.keys[e.code] = true;
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].indexOf(e.code) >= 0) e.preventDefault();
+    });
+    window.addEventListener('keyup', function (e) { self.keys[e.code] = false; });
+    window.addEventListener('blur', function () { self.keys = {}; self.mouseDown = false; });
+    canvas.addEventListener('mousemove', function (e) {
+      var r = canvas.getBoundingClientRect();
+      self.mouseX = e.clientX - r.left;
+      self.mouseY = e.clientY - r.top;
+    });
+    canvas.addEventListener('mousedown', function (e) {
+      if (e.button === 0) { self.mouseDown = true; self.mouseClicked = true; }
+    });
+    window.addEventListener('mouseup', function (e) {
+      if (e.button === 0) self.mouseDown = false;
+    });
+    canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  },
 
-  window.addEventListener('keydown', (e) => {
-    const k = keyName(e);
-    if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
-    if (!e.repeat) pressed.add(k);
-    keys.add(k);
-    anyKey = true;
-  });
-  window.addEventListener('keyup', (e) => keys.delete(keyName(e)));
-  window.addEventListener('blur', () => keys.clear());
-
-  canvas.addEventListener('mousemove', (e) => {
-    const r = canvas.getBoundingClientRect();
-    mouse.x = e.clientX - r.left;
-    mouse.y = e.clientY - r.top;
-  });
-  canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 0) { mouse.down = true; mouse.clicked = true; }
-    anyKey = true;
-  });
-  window.addEventListener('mouseup', () => { mouse.down = false; });
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-
-  return {
-    keys, pressed, mouse,
-    /** True while the key is held (accepts 'w' or 'ArrowUp' style names). */
-    down(...names) { return names.some((n) => keys.has(n)); },
-    /** True only on the frame the key went down. */
-    wasPressed(...names) { return names.some((n) => pressed.has(n)); },
-    /** True once any key or click has happened (audio unlock). */
-    get anyKey() { return anyKey; },
-    /** Clear per-frame edge state; call at the end of each frame. */
-    endFrame() { pressed.clear(); mouse.clicked = false; },
-  };
-}
+  down: function (code) { return !!this.keys[code]; },
+  justPressed: function (code) { return !!this.pressed[code]; },
+  // WASD or arrows.
+  axisX: function () {
+    return (this.down('KeyD') || this.down('ArrowRight') ? 1 : 0) -
+           (this.down('KeyA') || this.down('ArrowLeft') ? 1 : 0);
+  },
+  axisY: function () {
+    return (this.down('KeyS') || this.down('ArrowDown') ? 1 : 0) -
+           (this.down('KeyW') || this.down('ArrowUp') ? 1 : 0);
+  },
+  sprint: function () { return this.down('ShiftLeft') || this.down('ShiftRight'); },
+  // Call at the end of each frame to clear edge triggers.
+  endFrame: function () { this.pressed = {}; this.mouseClicked = false; },
+};
