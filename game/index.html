@@ -3,17 +3,133 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sunset Harbor — Open World Crime Game</title>
+<title>Sunset Harbor — an open-world crime game</title>
 <style>
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0b0e1a; overflow: hidden; }
-  #game { display: block; width: 100vw; height: 100vh; image-rendering: auto; cursor: crosshair; }
-  #fallback { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    color: #ffd166; font: 16px/1.5 system-ui, sans-serif; text-align: center; display: none; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #1a1210; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .hidden { display: none !important; }
+  #wrap { position: relative; width: 1280px; height: 720px; margin: 0 auto; overflow: hidden; background: #e8a56b; }
+  canvas#game { display: block; width: 1280px; height: 720px; }
+  #hud { position: absolute; inset: 0; pointer-events: none; }
+  #hud-top { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 12px 16px; }
+  #hud-stars { font-size: 28px; letter-spacing: 3px; color: #ffd21f; text-shadow: 0 2px 4px rgba(0,0,0,0.7); }
+  #hud-right { text-align: right; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
+  #hud-cash { font-size: 26px; font-weight: 800; color: #7dff8a; }
+  #hud-hp { width: 180px; height: 12px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px; margin-top: 6px; overflow: hidden; }
+  #hud-hp-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #3ad06b, #7dff8a); }
+  #hud-objective { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); max-width: 560px; text-align: center; background: rgba(20,10,5,0.72); color: #ffe9b0; padding: 8px 16px; border-radius: 8px; font-size: 15px; font-weight: 600; border: 1px solid rgba(255,210,31,0.5); }
+  #minimap { position: absolute; left: 14px; bottom: 14px; border: 2px solid rgba(255,255,255,0.7); border-radius: 6px; background: #2a3a2a; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+  #hud-speed { position: absolute; right: 16px; bottom: 14px; font-size: 26px; font-weight: 800; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.9); }
+  #toast { position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); background: rgba(20,10,5,0.8); color: #fff; padding: 8px 18px; border-radius: 20px; font-size: 15px; max-width: 700px; text-align: center; }
+  #damage-flash { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,0,0,0) 40%, rgba(255,0,0,0.55) 100%); opacity: 0; pointer-events: none; }
+  .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(160deg, rgba(60,20,40,0.88), rgba(200,90,30,0.82)); color: #fff; text-align: center; z-index: 10; }
+  .overlay h1 { font-size: 64px; margin: 0 0 4px; letter-spacing: 4px; text-shadow: 0 4px 18px rgba(0,0,0,0.6); }
+  .overlay h1 span { color: #ffd21f; }
+  .overlay h2 { font-size: 30px; margin: 0 0 10px; }
+  .overlay p { max-width: 560px; font-size: 17px; line-height: 1.5; margin: 8px 0; color: #ffe9c9; }
+  .overlay .sub { font-size: 15px; letter-spacing: 3px; text-transform: uppercase; color: #ffb36b; margin-bottom: 18px; }
+  .btn { pointer-events: auto; cursor: pointer; display: inline-block; margin: 6px; padding: 13px 30px; font-size: 18px; font-weight: 700; color: #2a1405; background: linear-gradient(180deg, #ffd21f, #f0a020); border: none; border-radius: 10px; box-shadow: 0 4px 0 #a86a10, 0 6px 14px rgba(0,0,0,0.4); }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost { background: rgba(255,255,255,0.16); color: #fff; box-shadow: 0 4px 0 rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.5); }
+  .keys { font-size: 14px; line-height: 1.9; color: #ffe9c9; text-align: left; background: rgba(0,0,0,0.35); padding: 14px 22px; border-radius: 10px; margin: 12px 0; }
+  .keys b { color: #ffd21f; }
+  #ending-cash { font-size: 40px; font-weight: 900; color: #7dff8a; margin: 6px 0 14px; }
 </style>
 </head>
 <body>
-<canvas id="game" width="1280" height="720"></canvas>
-<div id="fallback">Sunset Harbor needs JavaScript and a desktop browser to play.</div>
-<script type="module" src="./src/main.js"></script>
+<div id="wrap">
+  <canvas id="game" width="1280" height="720"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="hud-top">
+      <div id="hud-stars">☆☆☆☆☆</div>
+      <div id="hud-right">
+        <div id="hud-cash">$0</div>
+        <div id="hud-hp"><div id="hud-hp-fill"></div></div>
+      </div>
+    </div>
+    <div id="hud-objective"></div>
+    <canvas id="minimap" width="190" height="142"></canvas>
+    <div id="hud-speed"></div>
+    <div id="toast"></div>
+    <div id="damage-flash"></div>
+  </div>
+
+  <div id="overlay-title" class="overlay">
+    <div class="sub">An open-world crime game</div>
+    <h1>SUNSET <span>HARBOR</span></h1>
+    <p>Lucia Vega is out of lockup and the city is hers for the taking. Steal cars,
+       dodge the Harbor Patrol, run six story missions and pull off the Sunset Score —
+       all before the sun goes down.</p>
+    <div>
+      <button class="btn" id="btn-start">Start New Game</button>
+      <button class="btn ghost hidden" id="btn-continue">Continue</button>
+      <button class="btn ghost" id="btn-howto">How to Play</button>
+    </div>
+    <p style="font-size:13px;opacity:0.8">Keyboard + mouse &middot; autosaves as you play &middot; works offline</p>
+  </div>
+
+  <div id="overlay-howto" class="overlay hidden">
+    <h2>How to Play</h2>
+    <div class="keys">
+      <b>W A S D / Arrows</b> — walk &middot; <b>Shift</b> — sprint<br>
+      <b>Mouse</b> — aim &middot; <b>Click / F</b> — shoot the pistol<br>
+      <b>E</b> — steal / enter / exit a car<br>
+      <b>W / S</b> — drive &middot; <b>A / D</b> — steer<br>
+      <b>Esc / P</b> — pause
+    </div>
+    <p>Crimes raise your wanted level. Lay low and the heat dies down.
+       Get busted and you pay a fine; get wasted and you wake up in the clinic.
+       Follow the yellow marker to run the story.</p>
+    <button class="btn" id="btn-howto-back">Back</button>
+  </div>
+
+  <div id="overlay-pause" class="overlay hidden">
+    <h2>Paused</h2>
+    <p>Sunset Harbor waits for no one — except right now.</p>
+    <div>
+      <button class="btn" id="btn-resume">Resume</button>
+      <button class="btn ghost" id="btn-quit-title">Quit to Title</button>
+    </div>
+  </div>
+
+  <div id="overlay-busted" class="overlay hidden">
+    <h2>BUSTED</h2>
+    <p id="busted-fine"></p>
+    <p>The Harbor Patrol drops you at the safehouse. Your current mission restarts.</p>
+    <button class="btn" id="btn-busted-ok">Back to the Streets</button>
+  </div>
+
+  <div id="overlay-wasted" class="overlay hidden">
+    <h2>WASTED</h2>
+    <p id="wasted-lost"></p>
+    <p>You wake up at the Sunset Clinic. Your current mission restarts.</p>
+    <button class="btn" id="btn-wasted-ok">Back to the Streets</button>
+  </div>
+
+  <div id="overlay-ending" class="overlay hidden">
+    <div class="sub">The Sunset Score — complete</div>
+    <h2>KINGPIN OF SUNSET HARBOR</h2>
+    <p>Lucia walks the beach as the sun dips into the sea, the vault money in her bag
+       and the whole harbor behind her. Sunset Harbor is hers now.</p>
+    <div id="ending-cash">$2,450</div>
+    <div>
+      <button class="btn" id="btn-ending-roam">Free Roam</button>
+      <button class="btn ghost" id="btn-ending-restart">Play Again</button>
+    </div>
+  </div>
+</div>
+
+<script src="src/config.js"></script>
+<script src="src/random.js"></script>
+<script src="src/input.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/world.js"></script>
+<script src="src/entities.js"></script>
+<script src="src/missions.js"></script>
+<script src="src/render.js"></script>
+<script src="src/shots.js"></script>
+<script src="src/save.js"></script>
+<script src="src/main.js"></script>
 </body>
 </html>
